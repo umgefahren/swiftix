@@ -35,15 +35,12 @@ let
       "${pkgs.apple-sdk_15}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     else null;
 
+  # On Linux, flags are injected via wrapper scripts (see configurePhase)
+  # so SwiftPM's internal manifest compilation also gets them.
   platformSwiftcFlags =
     if isDarwin then [
       "-Xswiftc" "-sdk" "-Xswiftc" sdkRoot
-    ] else [
-      "-Xswiftc" "-Xcc" "-Xswiftc" "--gcc-toolchain=${pkgs.stdenv.cc.cc}"
-      "-Xswiftc" "-Xcc" "-Xswiftc" "--sysroot=${pkgs.stdenv.cc.libc}"
-      "-Xswiftc" "-Xclang-linker" "-Xswiftc" "--gcc-toolchain=${pkgs.stdenv.cc.cc}"
-      "-Xswiftc" "-Xclang-linker" "-Xswiftc" "--sysroot=${pkgs.stdenv.cc.libc}"
-    ];
+    ] else [];
 
   extraFlags = map (f: toString f) swiftFlags;
 
@@ -77,6 +74,25 @@ pkgs.stdenv.mkDerivation (cleanArgs // {
   + pkgs.lib.optionalString (!isDarwin) ''
     export C_INCLUDE_PATH="${pkgs.stdenv.cc.libc.dev}/include"
     export LIBRARY_PATH="${pkgs.stdenv.cc.libc}/lib:${pkgs.stdenv.cc.cc.lib}/lib"
+
+    # SwiftPM internally compiles Package.swift manifests using swiftc
+    # directly, bypassing our -Xswiftc flags. Create wrapper scripts that
+    # inject --gcc-toolchain and --sysroot so the bundled clang can always
+    # find glibc CRT files and GCC support libraries.
+    _swiftix_wrappers=$(mktemp -d)
+    for bin in swift swiftc; do
+      cat > "$_swiftix_wrappers/$bin" <<WRAPPER
+    #!/bin/bash
+    exec "${swift}/bin/$bin" \
+      -Xcc --gcc-toolchain=${pkgs.stdenv.cc.cc} \
+      -Xcc --sysroot=${pkgs.stdenv.cc.libc} \
+      -Xclang-linker --gcc-toolchain=${pkgs.stdenv.cc.cc} \
+      -Xclang-linker --sysroot=${pkgs.stdenv.cc.libc} \
+      "\$@"
+    WRAPPER
+      chmod +x "$_swiftix_wrappers/$bin"
+    done
+    export PATH="$_swiftix_wrappers:$PATH"
   '' + ''
     runHook postConfigure
   '';
