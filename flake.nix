@@ -91,6 +91,7 @@
             ];
 
           linuxEnv = pkgs.lib.optionalString (!isDarwin) ''
+            export HOME=$(mktemp -d)
             export C_INCLUDE_PATH="${pkgs.stdenv.cc.libc.dev}/include"
             export LIBRARY_PATH="${pkgs.stdenv.cc.libc}/lib:${pkgs.stdenv.cc.cc.lib}/lib"
           '';
