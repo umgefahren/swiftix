@@ -35,12 +35,17 @@ let
       "${pkgs.apple-sdk_15}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     else null;
 
-  # On Linux, flags are injected via wrapper scripts (see configurePhase)
-  # so SwiftPM's internal manifest compilation also gets them.
+  # On Linux, manifest compilation uses SWIFT_EXEC_MANIFEST (see configurePhase).
+  # Project compilation also needs the flags via -Xswiftc.
   platformSwiftcFlags =
     if isDarwin then [
       "-Xswiftc" "-sdk" "-Xswiftc" sdkRoot
-    ] else [];
+    ] else [
+      "-Xswiftc" "-Xcc" "-Xswiftc" "--gcc-toolchain=${pkgs.stdenv.cc.cc}"
+      "-Xswiftc" "-Xcc" "-Xswiftc" "--sysroot=${pkgs.stdenv.cc.libc}"
+      "-Xswiftc" "-Xclang-linker" "-Xswiftc" "--gcc-toolchain=${pkgs.stdenv.cc.cc}"
+      "-Xswiftc" "-Xclang-linker" "-Xswiftc" "--sysroot=${pkgs.stdenv.cc.libc}"
+    ];
 
   extraFlags = map (f: toString f) swiftFlags;
 
@@ -75,19 +80,16 @@ pkgs.stdenv.mkDerivation (cleanArgs // {
     export C_INCLUDE_PATH="${pkgs.stdenv.cc.libc.dev}/include"
     export LIBRARY_PATH="${pkgs.stdenv.cc.libc}/lib:${pkgs.stdenv.cc.cc.lib}/lib"
 
-    # SwiftPM internally compiles Package.swift manifests using swiftc
-    # directly, bypassing our -Xswiftc flags. Create wrapper scripts that
-    # inject --gcc-toolchain and --sysroot so the bundled clang can always
-    # find glibc CRT files and GCC support libraries.
-    # Only wrap swiftc — swift dispatches subcommands (build, package, etc.)
-    # and flags before the subcommand break dispatch. SwiftPM's internal
-    # manifest compilation calls swiftc directly, which is what needs the flags.
+    # SwiftPM resolves swiftc by absolute path from the swift binary's
+    # location, ignoring PATH. Use SWIFT_EXEC_MANIFEST to override the
+    # compiler used for Package.swift manifest compilation.
     _swiftix_wrappers=$(mktemp -d)
     _bash="$(command -v bash)"
     printf '#!%s\nexec "%s" -Xcc --gcc-toolchain=%s -Xcc --sysroot=%s -Xclang-linker --gcc-toolchain=%s -Xclang-linker --sysroot=%s "$@"\n' \
       "$_bash" "${swift}/bin/swiftc" "${pkgs.stdenv.cc.cc}" "${pkgs.stdenv.cc.libc}" "${pkgs.stdenv.cc.cc}" "${pkgs.stdenv.cc.libc}" \
       > "$_swiftix_wrappers/swiftc"
     chmod +x "$_swiftix_wrappers/swiftc"
+    export SWIFT_EXEC_MANIFEST="$_swiftix_wrappers/swiftc"
     export PATH="$_swiftix_wrappers:$PATH"
   '' + ''
     runHook postConfigure
