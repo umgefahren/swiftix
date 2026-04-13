@@ -182,9 +182,7 @@ swift package resolve
 Run `swiftpm2nix` (included with swiftix) to create fixed-output derivation expressions from the resolved dependencies:
 
 ```sh
-nix run github:stillwind-ai/swiftix#legacyPackages.x86_64-linux.swiftpm2nix
-# or on macOS:
-nix run github:stillwind-ai/swiftix#legacyPackages.aarch64-darwin.swiftpm2nix
+nix run github:stillwind-ai/swiftix#swiftpm2nix
 ```
 
 This creates a `nix/` directory with `default.nix` (hashes) and `workspace-state.json`. Commit these files.
@@ -205,15 +203,16 @@ This creates a `nix/` directory with `default.nix` (hashes) and `workspace-state
     in {
       packages = forAllSystems (system:
         let
-          mkSwiftPackage = swiftix.legacyPackages.${system}.mkSwiftPackage;
-          swiftpm2nix = swiftix.legacyPackages.${system}.swiftpm2nix;
+          pkgs = nixpkgs.legacyPackages.${system};
+          mkSwiftPackage = swiftix.lib.mkSwiftPackage { inherit pkgs; };
+          swiftpm2nixHelpers = swiftix.lib.swiftpm2nixHelpers { inherit pkgs; };
         in {
           default = mkSwiftPackage {
             pname = "my-app";
             version = "1.0.0";
             src = ./.;
             swift = swiftix.packages.${system}.swift-6_3;
-            swiftpmGenerated = swiftpm2nix.helpers ./nix;
+            swiftpmGenerated = swiftpm2nixHelpers ./nix;
             executableName = "MyApp"; # name of the executable target
           };
         }

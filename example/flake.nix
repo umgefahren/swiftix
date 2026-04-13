@@ -13,15 +13,16 @@
     in {
       packages = forAllSystems (system:
         let
-          mkSwiftPackage = swiftix.legacyPackages.${system}.mkSwiftPackage;
-          swiftpm2nix = swiftix.legacyPackages.${system}.swiftpm2nix;
+          pkgs = nixpkgs.legacyPackages.${system};
+          mkSwiftPackage = swiftix.lib.mkSwiftPackage { inherit pkgs; };
+          swiftpm2nixHelpers = swiftix.lib.swiftpm2nixHelpers { inherit pkgs; };
         in {
           default = mkSwiftPackage {
             pname = "example-app";
             version = "0.1.0";
             src = ./.;
             swift = swiftix.packages.${system}.swift-6_3;
-            swiftpmGenerated = swiftpm2nix.helpers ./nix;
+            swiftpmGenerated = swiftpm2nixHelpers ./nix;
             executableName = "ExampleApp";
           };
         }

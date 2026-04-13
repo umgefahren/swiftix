@@ -64,17 +64,17 @@
           # Alias: latest points to the newest release
           latest = toolchains.${latestName} or (builtins.throw "No toolchain available for ${system}");
           default = toolchains.${latestName} or (builtins.throw "No toolchain available for ${system}");
+          # swiftpm2nix CLI tool
+          swiftpm2nix = pkgs.callPackage ./lib/swiftpm2nix { };
         }
       );
 
-      # swiftpm2nix: tool + helpers for building SwiftPM projects with Nix
-      # mkSwiftPackage: builder function for SwiftPM projects
-      legacyPackages = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in {
-          swiftpm2nix = pkgs.callPackage ./lib/swiftpm2nix { };
-          mkSwiftPackage = import ./lib/mkSwiftPackage.nix { inherit pkgs; };
-        }
-      );
+      # Builder functions for SwiftPM projects.
+      # Usage: swiftix.lib.mkSwiftPackage { inherit pkgs; } { pname = ...; }
+      lib = {
+        mkSwiftPackage = import ./lib/mkSwiftPackage.nix;
+        swiftpm2nixHelpers = { pkgs }: (pkgs.callPackage ./lib/swiftpm2nix/support.nix { }).helpers;
+      };
 
       # Overlay for use with nixpkgs
       overlays.default = final: prev: {
@@ -159,15 +159,15 @@
           exampleCheck =
             let
               swift = self.packages.${system}.latest;
-              swiftpm2nix = self.legacyPackages.${system}.swiftpm2nix;
-              mkSwiftPackage = self.legacyPackages.${system}.mkSwiftPackage;
+              mkSwiftPackage = self.lib.mkSwiftPackage { inherit pkgs; };
+              swiftpm2nixHelpers = self.lib.swiftpm2nixHelpers { inherit pkgs; };
             in {
               "example" = mkSwiftPackage {
                 pname = "example-app";
                 version = "0.1.0";
                 src = ./example;
                 inherit swift;
-                swiftpmGenerated = swiftpm2nix.helpers ./example/nix;
+                swiftpmGenerated = swiftpm2nixHelpers ./example/nix;
                 executableName = "ExampleApp";
               };
             };
