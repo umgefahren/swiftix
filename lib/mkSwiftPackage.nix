@@ -35,6 +35,8 @@ let
       "${pkgs.apple-sdk_15}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     else null;
 
+  darwinArch = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x86_64";
+
   platformSwiftcFlags =
     if isDarwin then [
       "-Xswiftc" "-sdk" "-Xswiftc" sdkRoot
@@ -69,9 +71,18 @@ pkgs.stdenv.mkDerivation (cleanArgs // {
   + pkgs.lib.optionalString isDarwin ''
     export SDKROOT="${sdkRoot}"
     export LIBRARY_PATH="${pkgs.libcxx}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-    export MACOSX_DEPLOYMENT_TARGET="14.0"
     # Prevent stdenv CC wrapper (gcc) from interfering with SwiftPM
     unset NIX_LDFLAGS NIX_CFLAGS_COMPILE CC CXX
+
+    # SwiftPM manifest compilation ignores MACOSX_DEPLOYMENT_TARGET on some
+    # CI builders. Use SWIFT_EXEC_MANIFEST to inject -target with a version.
+    _swiftix_wrappers=$(mktemp -d)
+    _bash="$(command -v bash)"
+    printf '#!%s\nexec "%s" -target ${darwinArch}-apple-macosx14.0 "$@"\n' \
+      "$_bash" "${swift}/bin/swiftc" \
+      > "$_swiftix_wrappers/swiftc"
+    chmod +x "$_swiftix_wrappers/swiftc"
+    export SWIFT_EXEC_MANIFEST="$_swiftix_wrappers/swiftc"
   ''
   + pkgs.lib.optionalString (!isDarwin) ''
     export C_INCLUDE_PATH="${pkgs.stdenv.cc.libc.dev}/include"
