@@ -150,7 +150,25 @@
               '');
             };
 
+          # Build the example project with the latest Swift
+          exampleCheck =
+            let
+              swift = self.packages.${system}.latest;
+              swiftpm2nix = self.legacyPackages.${system}.swiftpm2nix;
+              mkSwiftPackage = self.legacyPackages.${system}.mkSwiftPackage;
+            in {
+              "example" = mkSwiftPackage {
+                pname = "example-app";
+                version = "0.1.0";
+                src = ./example;
+                inherit swift;
+                swiftpmGenerated = swiftpm2nix.helpers ./example/nix;
+                executableName = "ExampleApp";
+              };
+            };
+
         in builtins.foldl' (acc: release: acc // mkChecks release) {} releaseData
+           // exampleCheck
       );
     };
 }
