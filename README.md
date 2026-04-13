@@ -290,4 +290,4 @@ Run the update script to fetch the latest releases and prefetch hashes:
 
 ## License
 
-Apache 2.0
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option.
