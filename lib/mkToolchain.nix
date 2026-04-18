@@ -228,6 +228,25 @@ pkgs.stdenv.mkDerivation {
     ln -sf ${pkgs.xcbuild}/bin/xcrun $out/bin/xcrun
     ln -sf ${pkgs.darwin.cctools}/bin/libtool $out/bin/libtool
     ln -sf ${pkgs.darwin.cctools}/bin/vtool $out/bin/vtool
+
+    # Setup hook: add libcxx to LIBRARY_PATH. Swift's Darwin back-compat
+    # shims (libswiftCompatibility56.a and friends) pull in `operator new`
+    # / `operator delete` from libc++. Swift's driver auto-links `-lc++`
+    # but relies on a default system library path to resolve it — macOS
+    # has that path, nixpkgs doesn't. libc++ lives at ${pkgs.libcxx}/lib
+    # under Nix. Without this, bare `swift build` fails at link time with
+    # "Could not find or use auto-linked library 'c++'".
+    mkdir -p "$out/nix-support"
+    cat > "$out/nix-support/setup-hook" <<'HOOK'
+    _swiftix_darwin_libs() {
+      export LIBRARY_PATH="${pkgs.libcxx}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    }
+    preConfigureHooks+=(_swiftix_darwin_libs)
+    # Also run immediately for interactive devShells, which source setup
+    # hooks but never invoke preConfigureHooks. Idempotent — re-export is
+    # fine (LIBRARY_PATH is a colon list, but we only add one entry).
+    _swiftix_darwin_libs
+    HOOK
   '' else "";
 
   meta = with pkgs.lib; {
