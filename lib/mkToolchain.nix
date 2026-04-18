@@ -180,6 +180,7 @@ pkgs.stdenv.mkDerivation {
       -Xcc --sysroot="$out/sysroot" \\
       -Xclang-linker --gcc-toolchain=${linuxCC} \\
       -Xclang-linker --sysroot="$out/sysroot" \\
+      -Xclang-linker -Wl,--dynamic-linker=${pkgs.stdenv.cc.bintools.dynamicLinker} \\
       -L${linuxCC.lib}/lib \\
       -Xclang-linker -L${linuxCC.lib}/lib \\
       "\$@"
