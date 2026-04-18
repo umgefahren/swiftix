@@ -19,8 +19,13 @@
 
       forAllSystems = f: nixpkgs.lib.genAttrs allSystems f;
 
-      # Load release data (versions + hashes)
-      releaseData = builtins.fromJSON (builtins.readFile ./data/releases.json);
+      # Load release data (versions + hashes), sorted newest-first.
+      # The Swift release API (and therefore update.sh output) is oldest-first;
+      # `latest`/`default` rely on head-of-list, so we sort here to be robust
+      # against whatever order the file happens to be written in.
+      releaseData =
+        let raw = builtins.fromJSON (builtins.readFile ./data/releases.json);
+        in builtins.sort (a: b: nixpkgs.lib.versionOlder b.version a.version) raw;
 
       # Import toolchain builder
       mkToolchain = import ./lib/mkToolchain.nix;
