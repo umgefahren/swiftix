@@ -87,38 +87,31 @@
       };
 
       # Checks: run via `nix flake check`
-      # Generates version/compile/interpret checks for every toolchain.
+      #
+      # Every check exercises the toolchain in the same shape the README
+      # quick-start documents: `buildInputs = [ swift ]` (plus apple-sdk_15
+      # on Darwin, whose setup-hook sets SDKROOT — required in the sandbox).
+      # No manual -sdk / -Xcc / C_INCLUDE_PATH / LIBRARY_PATH / CC glue.
+      # If a check needs glue to pass, that glue belongs inside the toolchain,
+      # not inside the check — otherwise CI silently masks regressions in
+      # the documented experience.
       checks = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
           isDarwin = pkgs.lib.hasSuffix "darwin" system;
           nixArch = if pkgs.lib.hasPrefix "aarch64" system then "aarch64" else "x86_64";
 
-          # Platform-specific dependencies and flags for compilation checks
-          checkDeps =
-            if isDarwin then [ pkgs.apple-sdk_15 ]
-            else [ pkgs.stdenv.cc pkgs.stdenv.cc.libc pkgs.stdenv.cc.libc.dev ];
+          # Only apple-sdk_15 on Darwin. Nothing on Linux — the Linux fix
+          # bakes sysroot, swiftc wrapper, and CC setup-hook into the toolchain.
+          bareInputs = pkgs.lib.optional isDarwin pkgs.apple-sdk_15;
 
-          swiftcFlags =
-            if isDarwin then
-              "-sdk ${pkgs.apple-sdk_15}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
-            else builtins.concatStringsSep " " [
-              "-Xcc --gcc-toolchain=${pkgs.stdenv.cc.cc}"
-              "-Xcc --sysroot=${pkgs.stdenv.cc.libc}"
-              "-Xclang-linker --gcc-toolchain=${pkgs.stdenv.cc.cc}"
-              "-Xclang-linker --sysroot=${pkgs.stdenv.cc.libc}"
-            ];
-
-          # Ensure HOME is writable — CI sandboxes set HOME=/homeless-shelter
-          # which isn't writable, causing swiftc's clang module cache to fail.
-          envSetup = ''
+          # HOME must be writable for swiftc's clang module cache; sandbox
+          # sets HOME=/homeless-shelter. Not toolchain glue — it's a sandbox
+          # quirk every Nix derivation hits.
+          writableHome = ''
             export HOME=$(mktemp -d)
-          '' + pkgs.lib.optionalString (!isDarwin) ''
-            export C_INCLUDE_PATH="${pkgs.stdenv.cc.libc.dev}/include"
-            export LIBRARY_PATH="${pkgs.stdenv.cc.libc}/lib:${pkgs.stdenv.cc.cc.lib}/lib"
           '';
 
-          # Generate checks for a single toolchain
           mkChecks = release:
             let
               systemKey =
@@ -131,54 +124,65 @@
             in
             pkgs.lib.optionalAttrs (hash != null) {
               "version-${safeName}" = pkgs.runCommand "swiftix-check-version-${safeName}" {
-                buildInputs = checkDeps;
+                buildInputs = [ swift ] ++ bareInputs;
               } ''
-                ${swift}/bin/swift --version
-                ${swift}/bin/swiftc --version
+                swift --version
+                swiftc --version
                 touch $out
               '';
 
               "compile-${safeName}" = pkgs.runCommand "swiftix-check-compile-${safeName}" {
-                buildInputs = checkDeps;
-              } (envSetup + ''
+                buildInputs = [ swift ] ++ bareInputs;
+              } (writableHome + ''
                 cat > hello.swift << 'EOF'
                 print("Hello from swiftix!")
                 let x = (1...10).reduce(0, +)
                 guard x == 55 else { fatalError("math is broken") }
                 print("Sum 1..10 = \(x)")
                 EOF
-                ${swift}/bin/swiftc ${swiftcFlags} -o hello hello.swift
+                swiftc -o hello hello.swift
                 ./hello | grep -q "Hello from swiftix"
                 touch $out
               '');
 
               "interpret-${safeName}" = pkgs.runCommand "swiftix-check-interpret-${safeName}" {
-                buildInputs = checkDeps;
-              } (envSetup + ''
-                echo 'print("interpreted!")' | ${swift}/bin/swift ${swiftcFlags} - 2>&1 | grep -q "interpreted"
+                buildInputs = [ swift ] ++ bareInputs;
+              } (writableHome + ''
+                echo 'print("interpreted!")' | swift - 2>&1 | grep -q "interpreted"
                 touch $out
               '');
             };
 
-          # Build the example project with the latest Swift
-          exampleCheck =
+          # Bare `swift build` against a minimal SwiftPM package on the latest
+          # toolchain. This is the path that regressed on Linux — SwiftPM
+          # manifest compilation invokes swiftc via absolute path, so the
+          # baked-in wrapper must kick in without caller-provided flags.
+          swiftpmCheck =
             let
               swift = self.packages.${system}.latest;
-              mkSwiftPackage = self.lib.mkSwiftPackage { inherit pkgs; };
-              swiftpm2nixHelpers = self.lib.swiftpm2nixHelpers { inherit pkgs; };
             in {
-              "example" = mkSwiftPackage {
-                pname = "example-app";
-                version = "0.1.0";
-                src = ./example;
-                inherit swift;
-                swiftpmGenerated = swiftpm2nixHelpers ./example/nix;
-                executableName = "ExampleApp";
-              };
+              "swiftpm-build" = pkgs.runCommand "swiftix-check-swiftpm-build" {
+                buildInputs = [ swift ] ++ bareInputs;
+              } (writableHome + ''
+                mkdir pkg && cd pkg
+                cat > Package.swift << 'EOF'
+                // swift-tools-version:5.9
+                import PackageDescription
+                let package = Package(
+                    name: "hello",
+                    targets: [ .executableTarget(name: "hello") ]
+                )
+                EOF
+                mkdir -p Sources/hello
+                echo 'print("hi from swiftpm")' > Sources/hello/main.swift
+                swift build -c release --disable-sandbox --skip-update
+                ./.build/release/hello | grep -q "hi from swiftpm"
+                touch $out
+              '');
             };
 
         in builtins.foldl' (acc: release: acc // mkChecks release) {} releaseData
-           // exampleCheck
+           // swiftpmCheck
       );
     };
 }
