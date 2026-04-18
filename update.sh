@@ -87,7 +87,7 @@ prefetch_hash() {
 RESULT="[]"
 PLATFORMS=("macOS" "linux-x86_64" "linux-aarch64")
 
-echo "$RELEASES_JSON" | jq -c '.[]' | while read -r release; do
+while read -r release; do
   version=$(echo "$release" | jq -r '.name')
   tag=$(echo "$release" | jq -r '.tag')
   date=$(echo "$release" | jq -r '.date')
@@ -138,7 +138,7 @@ echo "$RELEASES_JSON" | jq -c '.[]' | while read -r release; do
     '{version: $version, tag: $tag, date: $date, hashes: $hashes}')
 
   RESULT=$(echo "$RESULT" | jq --argjson e "$entry" '. + [$e]')
-done
+done < <(echo "$RELEASES_JSON" | jq -c '.[]')
 
 echo "$RESULT" | jq '.' > "$DATA_FILE"
 echo "Written to $DATA_FILE"
