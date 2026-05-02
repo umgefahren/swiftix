@@ -71,6 +71,10 @@ pkgs.stdenv.mkDerivation (cleanArgs // {
   + pkgs.lib.optionalString isDarwin ''
     export SDKROOT="${sdkRoot}"
     export LIBRARY_PATH="${pkgs.libcxx}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    # SwiftPM invokes clang for C/C++ targets (e.g. TOMLKit's CTOML wrapper).
+    # SDKROOT supplies C headers; libc++ headers ship separately and aren't
+    # discovered automatically once NIX_CFLAGS_COMPILE is unset below.
+    export CPLUS_INCLUDE_PATH="${pkgs.libcxx.dev}/include/c++/v1''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
     # Prevent stdenv CC wrapper (gcc) from interfering with SwiftPM
     unset NIX_LDFLAGS NIX_CFLAGS_COMPILE CC CXX
 
